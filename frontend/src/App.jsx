@@ -1,122 +1,136 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useState } from "react";
+import "./App.css";
+
+// Base URL of our FastAPI backend. Docker Compose publishes the backend's
+// port 8000 to your host machine, so the browser (running on your host,
+// not inside a container) reaches it via plain localhost.
+const API_URL = "http://localhost:8000";
 
 function App() {
-  const [count, setCount] = useState(0)
+  // --- State ---
+  const [file, setFile] = useState(null);               // file picked by the user
+  const [uploadStatus, setUploadStatus] = useState(""); // feedback after upload
+  const [question, setQuestion] = useState("");         // current text in the input box
+  const [messages, setMessages] = useState([]);         // chat history
+  const [isLoading, setIsLoading] = useState(false);    // true while waiting on /chat/
+  const [error, setError] = useState("");               // user-facing error message
 
+  // --- Handlers ---
+
+  const handleFileChange = (e) => {
+    setFile(e.target.files[0]);
+    setUploadStatus("");
+  };
+
+  const handleUpload = async () => {
+    if (!file) {
+      setUploadStatus("Choose a .txt or .md file first.");
+      return;
+    }
+
+    // FormData is how the browser sends a file as multipart/form-data,
+    // which matches what FastAPI's UploadFile expects on the other end.
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      setUploadStatus("Uploading...");
+      const res = await fetch(`${API_URL}/upload/`, {
+        method: "POST",
+        body: formData,
+        // No Content-Type header here on purpose since the browser sets the
+        // correct multipart boundary automatically when you pass FormData.
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server responded with ${res.status}`);
+      }
+
+      const data = await res.json();
+      setUploadStatus(data.message);
+    } catch (err) {
+      setUploadStatus("Upload failed. Is the backend container running?");
+      console.error(err);
+    }
+  };
+
+  const handleAsk = async () => {
+    if (!question.trim()) return;
+
+    const userMessage = { role: "user", text: question };
+    setMessages((prev) => [...prev, userMessage]);
+    setQuestion("");
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch(`${API_URL}/chat/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: userMessage.text }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server responded with ${res.status}`);
+      }
+
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: data.answer, sources: data.sources },
+      ]);
+    } catch (err) {
+      // This is the exact failure mode that I kept running into earlier in this project
+      // Network failure, or the backend returning a 500. It would hang quietly
+      // But now we catch it and show a user-facing error message
+      setError("Error querying API. Check that the backend container is running and healthy.");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- Render ---
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+    <div className="app">
+      <h1>Notes Assistant</h1>
+
+      <section className="upload-panel">
+        <input type="file" accept=".txt,.md" onChange={handleFileChange} />
+        <button onClick={handleUpload}>Upload notes</button>
+        {uploadStatus && <p className="status">{uploadStatus}</p>}
       </section>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+      <section className="chat-panel">
+        <div className="messages">
+          {messages.map((m, i) => (
+            <div key={i} className={`message ${m.role}`}>
+              <p>{m.text}</p>
+              {m.sources && m.sources.length > 0 && (
+                <p className="sources">Sources: {m.sources.join(", ")}</p>
+              )}
+            </div>
+          ))}
+          {isLoading && <p className="loading">Thinking...</p>}
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
+
+        {error && <p className="error">{error}</p>}
+
+        <div className="input-row">
+          <input
+            type="text"
+            value={question}
+            placeholder="Ask something about your notes"
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAsk()}
+          />
+          <button onClick={handleAsk} disabled={isLoading}>
+            Ask AI
+          </button>
         </div>
       </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+    </div>
+  );
 }
 
-export default App
+export default App;
